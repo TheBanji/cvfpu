@@ -241,6 +241,17 @@ package fpnew_pkg;
     IntFmtMask:    4'b0010
   };
 
+  ////////////////////////////////////////////////////////////////
+  // Custom FPU format
+  localparam fpu_features_t CUSTOM_FPU_FORMAT = '{
+    Width:         32,
+    EnableVectors: 1'b0,
+    EnableNanBox:  1'b1,
+    FpFmtMask:     5'b10100, // FP32, FP64, FP16, FP8, FP16ALT
+    IntFmtMask:    4'b0110 // INT8, INT16, INT32, INT64
+  };
+  ////////////////////////////////////////////////////////////////
+
   localparam fpu_features_t RV64D_Xsflt = '{
     Width:         64,
     EnableVectors: 1'b1,
@@ -281,6 +292,18 @@ package fpnew_pkg;
                   '{default: MERGED}},  // CONV
     PipeConfig: BEFORE
   };
+
+  ////////////////////////////////////////////////////////////////
+  // Custom FPU configuration
+  localparam fpu_implementation_t CUSTOM_FPU_CONFIGURATION = '{
+    PipeRegs:   '{default: 2},
+    UnitTypes:  '{'{default: PARALLEL},  // ADDMUL
+                  '{default: MERGED},    // DIVSQRT
+                  '{default: PARALLEL},  // NONCOMP
+                  '{default: DISABLED}}, // CONV
+    PipeConfig: DISTRIBUTED
+  };
+  ////////////////////////////////////////////////////////////////
 
   localparam fpu_implementation_t DEFAULT_SNITCH = '{
     PipeRegs:   '{default: 1},
