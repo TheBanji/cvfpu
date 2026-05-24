@@ -296,7 +296,7 @@ package fpnew_pkg;
   ////////////////////////////////////////////////////////////////
   // Custom FPU configuration
   localparam fpu_implementation_t CUSTOM_FPU_CONFIGURATION = '{
-    PipeRegs:   '{default: 2},
+    PipeRegs:   '{default: 3},
     UnitTypes:  '{'{default: PARALLEL},  // ADDMUL
                   '{default: MERGED},    // DIVSQRT
                   '{default: PARALLEL},  // NONCOMP
