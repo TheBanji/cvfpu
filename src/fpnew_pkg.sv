@@ -248,7 +248,7 @@ package fpnew_pkg;
     EnableVectors: 1'b0,
     EnableNanBox:  1'b1,
     FpFmtMask:     5'b10100, // FP32, FP64, FP16, FP8, FP16ALT
-    IntFmtMask:    4'b0110 // INT8, INT16, INT32, INT64
+    IntFmtMask:    4'b0010 // INT8, INT16, INT32, INT64
   };
   ////////////////////////////////////////////////////////////////
 
@@ -300,7 +300,7 @@ package fpnew_pkg;
     UnitTypes:  '{'{default: PARALLEL},  // ADDMUL
                   '{default: MERGED},    // DIVSQRT
                   '{default: PARALLEL},  // NONCOMP
-                  '{default: DISABLED}}, // CONV
+                  '{default: MERGED}}, // CONV
     PipeConfig: DISTRIBUTED
   };
   ////////////////////////////////////////////////////////////////
