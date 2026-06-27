@@ -247,7 +247,7 @@ package fpnew_pkg;
     Width:         32,
     EnableVectors: 1'b0,
     EnableNanBox:  1'b1,
-    FpFmtMask:     5'b10100, // FP32, FP64, FP16, FP8, FP16ALT
+    FpFmtMask:     5'b10000, // FP32, FP64, FP16, FP8, FP16ALT
     IntFmtMask:    4'b0010 // INT8, INT16, INT32, INT64
   };
   ////////////////////////////////////////////////////////////////
@@ -296,7 +296,7 @@ package fpnew_pkg;
   ////////////////////////////////////////////////////////////////
   // Custom FPU configuration
   localparam fpu_implementation_t CUSTOM_FPU_CONFIGURATION = '{
-    PipeRegs:   '{default: 3},
+    PipeRegs:   '{'{default: 8}, '{default: 8}, '{default: 4}, '{default: 6}}, //'{default: 4},
     UnitTypes:  '{'{default: PARALLEL},  // ADDMUL
                   '{default: MERGED},    // DIVSQRT
                   '{default: PARALLEL},  // NONCOMP
