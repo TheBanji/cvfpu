@@ -256,6 +256,19 @@ package fpnew_pkg;
     ifmt_logic_t MxIntFmtMask; // MX-specific INT formats (INT8)
   } fpu_features_t;
 
+////////////////////////////////////////////////////////////////
+  // Custom FPU format
+  localparam fpu_features_t CUSTOM_FPU_FORMAT = '{
+    Width:         32,
+    EnableVectors: 1'b0,
+    EnableNanBox:  1'b0,         // Disable NaN-Boxing
+    FpFmtMask:     9'b100000000, // FP32, FP64, FP16, FP8, FP16ALT
+    IntFmtMask:    4'b0010,      // INT8, INT16, INT32, INT64
+    MxFpFmtMask:   9'b0,         // No MX support
+    MxIntFmtMask:  4'b0
+  };
+////////////////////////////////////////////////////////////////
+
   localparam fpu_features_t RV64D = '{
     Width:         64,
     EnableVectors: 1'b0,
@@ -334,6 +347,25 @@ package fpnew_pkg;
                   '{default: DISABLED}}, // MXDOTP
     PipeConfig: BEFORE
   };
+
+  ////////////////////////////////////////////////////////////////
+  // Custom FPU configuration
+  localparam fpu_implementation_t CUSTOM_FPU_CONFIGURATION = '{
+    PipeRegs:   '{'{default: 8},  // ADDMUL
+                  '{default: 8},  // DIVSQRT
+                  '{default: 4},  // NONCOMP
+                  '{default: 6},  // CONV
+                  '{default: 0},  // DOTP
+                  '{default: 0}}, // MXDOTP
+    UnitTypes:  '{'{default: PARALLEL},  // ADDMUL
+                  '{default: MERGED},    // DIVSQRT
+                  '{default: PARALLEL},  // NONCOMP
+                  '{default: MERGED},    // CONV
+                  '{default: DISABLED},  // DOTP
+                  '{default: DISABLED}}, // MXDOTP
+    PipeConfig: DISTRIBUTED
+  };
+  ////////////////////////////////////////////////////////////////
 
   localparam fpu_implementation_t DEFAULT_SNITCH = '{
     PipeRegs:   '{default: 1},
