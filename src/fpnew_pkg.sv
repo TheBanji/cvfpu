@@ -339,10 +339,10 @@ package fpnew_pkg;
 
   localparam fpu_implementation_t DEFAULT_NOREGS = '{
     PipeRegs:   '{default: 0},
-    UnitTypes:  '{'{default: PARALLEL}, // ADDMUL
-                  '{default: MERGED},   // DIVSQRT
-                  '{default: PARALLEL}, // NONCOMP
-                  '{default: MERGED},   // CONV
+    UnitTypes:  '{'{default: PARALLEL},  // ADDMUL
+                  '{default: MERGED},    // DIVSQRT
+                  '{default: PARALLEL},  // NONCOMP
+                  '{default: MERGED},    // CONV
                   '{default: DISABLED},  // DOTP
                   '{default: DISABLED}}, // MXDOTP
     PipeConfig: BEFORE
@@ -351,10 +351,10 @@ package fpnew_pkg;
   ////////////////////////////////////////////////////////////////
   // Custom FPU configuration
   localparam fpu_implementation_t CUSTOM_FPU_CONFIGURATION = '{
-    PipeRegs:   '{'{default: 8},  // ADDMUL
-                  '{default: 8},  // DIVSQRT
+    PipeRegs:   '{'{default: 3},  // ADDMUL
+                  '{default: 6},  // DIVSQRT
                   '{default: 4},  // NONCOMP
-                  '{default: 6},  // CONV
+                  '{default: 10},  // CONV
                   '{default: 0},  // DOTP
                   '{default: 0}}, // MXDOTP
     UnitTypes:  '{'{default: PARALLEL},  // ADDMUL

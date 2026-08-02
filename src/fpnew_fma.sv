@@ -316,25 +316,200 @@ module fpnew_fma #(
       addend_shamt = 0;
   end
 
+  ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+  // ---------------
+  // Custom mid1 pipeline
+  // ---------------
+  localparam int CUSTOM_MID1_PIPE_DEPTH = 1;
+  // Custom mid pipeline signals, index i holds signal after i register stage
+  fp_t                           [0:CUSTOM_MID1_PIPE_DEPTH]                          custom_mid1_pipe_operand_a_q;
+  fp_t                           [0:CUSTOM_MID1_PIPE_DEPTH]                          custom_mid1_pipe_operand_b_q;
+  fp_t                           [0:CUSTOM_MID1_PIPE_DEPTH]                          custom_mid1_pipe_operand_c_q;
+  fpnew_pkg::fp_info_t           [0:CUSTOM_MID1_PIPE_DEPTH]                          custom_mid1_pipe_info_a_q;
+  fpnew_pkg::fp_info_t           [0:CUSTOM_MID1_PIPE_DEPTH]                          custom_mid1_pipe_info_b_q;
+  fpnew_pkg::fp_info_t           [0:CUSTOM_MID1_PIPE_DEPTH]                          custom_mid1_pipe_info_c_q;
+  logic                          [0:CUSTOM_MID1_PIPE_DEPTH]                          custom_mid1_pipe_effective_subtraction_q;
+  logic                          [0:CUSTOM_MID1_PIPE_DEPTH]                          custom_mid1_pipe_tentative_sign_q;
+  fp_t                           [0:CUSTOM_MID1_PIPE_DEPTH]                          custom_mid1_pipe_special_result_q;
+  fpnew_pkg::status_t            [0:CUSTOM_MID1_PIPE_DEPTH]                          custom_mid1_pipe_special_status_q;
+  logic                          [0:CUSTOM_MID1_PIPE_DEPTH]                          custom_mid1_pipe_result_is_special_q;
+  logic signed                   [0:CUSTOM_MID1_PIPE_DEPTH] [EXP_WIDTH-1:0]          custom_mid1_pipe_exponent_product_q;
+  logic signed                   [0:CUSTOM_MID1_PIPE_DEPTH] [EXP_WIDTH-1:0]          custom_mid1_pipe_exponent_difference_q;
+  logic signed                   [0:CUSTOM_MID1_PIPE_DEPTH] [EXP_WIDTH-1:0]          custom_mid1_pipe_tentative_exponent_q;
+  logic                          [0:CUSTOM_MID1_PIPE_DEPTH] [SHIFT_AMOUNT_WIDTH-1:0] custom_mid1_pipe_addend_shamt_q;
+  fpnew_pkg::roundmode_e         [0:CUSTOM_MID1_PIPE_DEPTH]                          custom_mid1_pipe_rnd_mode_q;
+  TagType                        [0:CUSTOM_MID1_PIPE_DEPTH]                          custom_mid1_pipe_tag_q;
+  logic                          [0:CUSTOM_MID1_PIPE_DEPTH]                          custom_mid1_pipe_mask_q;
+  AuxType                        [0:CUSTOM_MID1_PIPE_DEPTH]                          custom_mid1_pipe_aux_q;
+  logic                          [0:CUSTOM_MID1_PIPE_DEPTH]                          custom_mid1_pipe_valid_q;
+  // Ready signal is combinatorial for all stages
+  logic                          [0:CUSTOM_MID1_PIPE_DEPTH]                          custom_mid1_pipe_ready;
+
+  // Input stage:
+  assign custom_mid1_pipe_operand_a_q[0]             = operand_a;
+  assign custom_mid1_pipe_operand_b_q[0]             = operand_b;
+  assign custom_mid1_pipe_operand_c_q[0]             = operand_c;
+  assign custom_mid1_pipe_info_a_q[0]                = info_a;
+  assign custom_mid1_pipe_info_b_q[0]                = info_b;
+  assign custom_mid1_pipe_info_c_q[0]                = info_c;
+  assign custom_mid1_pipe_effective_subtraction_q[0] = effective_subtraction;
+  assign custom_mid1_pipe_tentative_sign_q[0]        = tentative_sign;
+  assign custom_mid1_pipe_special_result_q[0]        = special_result;
+  assign custom_mid1_pipe_special_status_q[0]        = special_status;
+  assign custom_mid1_pipe_result_is_special_q[0]     = result_is_special;
+  assign custom_mid1_pipe_exponent_product_q[0]      = exponent_product;
+  assign custom_mid1_pipe_exponent_difference_q[0]   = exponent_difference;
+  assign custom_mid1_pipe_tentative_exponent_q[0]    = tentative_exponent;
+  assign custom_mid1_pipe_addend_shamt_q[0]          = addend_shamt;
+  assign custom_mid1_pipe_rnd_mode_q[0]              = inp_pipe_rnd_mode_q[NUM_INP_REGS];
+  assign custom_mid1_pipe_tag_q[0]                   = inp_pipe_tag_q[NUM_INP_REGS];
+  assign custom_mid1_pipe_mask_q[0]                  = inp_pipe_mask_q[NUM_INP_REGS];
+  assign custom_mid1_pipe_aux_q[0]                   = inp_pipe_aux_q[NUM_INP_REGS];
+  assign custom_mid1_pipe_valid_q[0]                 = inp_pipe_valid_q[NUM_INP_REGS];
+  // Input stage: Propagate pipeline ready signal to updtream circuitry
+  assign inp_pipe_ready[NUM_INP_REGS] = custom_mid1_pipe_ready[0];
+  // Generate the register stages
+  for (genvar i = 0; i < CUSTOM_MID1_PIPE_DEPTH; i++) begin : gen_custom_mid1_pipeline
+    // Internal register enable for this stage
+    logic reg_ena;
+    // Determine the ready signal of the current stage - advance the pipeline:
+    // 1. if the next stage is ready for our data
+    // 2. if the next stage only holds a bubble (not valid) -> we can pop it
+    assign custom_mid1_pipe_ready[i] = custom_mid1_pipe_ready[i+1] | ~custom_mid1_pipe_valid_q[i+1];
+    // Valid: enabled by ready signal, synchronous clear with the flush signal
+    `FFLARNC(custom_mid1_pipe_valid_q[i+1], custom_mid1_pipe_valid_q[i], custom_mid1_pipe_ready[i], flush_i, 1'b0, clk_i, rst_ni)
+    // Enable register if pipleine ready and a valid data item is present
+    assign reg_ena = custom_mid1_pipe_ready[i] & custom_mid1_pipe_valid_q[i]; // Enabling on ready - only - should be enough (TODO: TEST)
+    // Generate the pipeline registers within the stages, use enable-registers
+    `FFL(custom_mid1_pipe_operand_a_q[i+1],             custom_mid1_pipe_operand_a_q[i],             reg_ena, '0);
+    `FFL(custom_mid1_pipe_operand_b_q[i+1],             custom_mid1_pipe_operand_b_q[i],             reg_ena, '0);
+    `FFL(custom_mid1_pipe_operand_c_q[i+1],             custom_mid1_pipe_operand_c_q[i],             reg_ena, '0);
+    `FFL(custom_mid1_pipe_info_a_q[i+1],                custom_mid1_pipe_info_a_q[i],                reg_ena, '0);
+    `FFL(custom_mid1_pipe_info_b_q[i+1],                custom_mid1_pipe_info_b_q[i],                reg_ena, '0);
+    `FFL(custom_mid1_pipe_info_c_q[i+1],                custom_mid1_pipe_info_c_q[i],                reg_ena, '0);
+    `FFL(custom_mid1_pipe_effective_subtraction_q[i+1], custom_mid1_pipe_effective_subtraction_q[i], reg_ena, '0);
+    `FFL(custom_mid1_pipe_tentative_sign_q[i+1],        custom_mid1_pipe_tentative_sign_q[i],        reg_ena, '0);
+    `FFL(custom_mid1_pipe_special_result_q[i+1],        custom_mid1_pipe_special_result_q[i],        reg_ena, '0);
+    `FFL(custom_mid1_pipe_special_status_q[i+1],        custom_mid1_pipe_special_status_q[i],        reg_ena, '0);
+    `FFL(custom_mid1_pipe_result_is_special_q[i+1],     custom_mid1_pipe_result_is_special_q[i],     reg_ena, '0);
+    `FFL(custom_mid1_pipe_exponent_product_q[i+1],      custom_mid1_pipe_exponent_product_q[i],      reg_ena, '0);
+    `FFL(custom_mid1_pipe_exponent_difference_q[i+1],   custom_mid1_pipe_exponent_difference_q[i],   reg_ena, '0);
+    `FFL(custom_mid1_pipe_tentative_exponent_q[i+1],    custom_mid1_pipe_tentative_exponent_q[i],    reg_ena, '0);
+    `FFL(custom_mid1_pipe_addend_shamt_q[i+1],          custom_mid1_pipe_addend_shamt_q[i],          reg_ena, '0);
+    `FFL(custom_mid1_pipe_rnd_mode_q[i+1],              custom_mid1_pipe_rnd_mode_q[i],              reg_ena, fpnew_pkg::RNE)
+    `FFL(custom_mid1_pipe_tag_q[i+1],                   custom_mid1_pipe_tag_q[i],                   reg_ena, TagType'('0))
+    `FFL(custom_mid1_pipe_mask_q[i+1],                  custom_mid1_pipe_mask_q[i],                  reg_ena, '0)
+    `FFL(custom_mid1_pipe_aux_q[i+1],                   custom_mid1_pipe_aux_q[i],                   reg_ena, AuxType'('0))
+  end
+  ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
   // ------------------
   // Product data path
   // ------------------
   logic [PRECISION_BITS-1:0]   mantissa_a, mantissa_b, mantissa_c;
   logic [2*PRECISION_BITS-1:0] product;             // the p*p product is 2p bits wide
-  logic [3*PRECISION_BITS+3:0] product_shifted;     // addends are 3p+4 bit wide (including G/R)
+
+  logic [MAN_BITS-1:0] mant_a    = custom_mid1_pipe_operand_a_q[CUSTOM_MID1_PIPE_DEPTH].mantissa;
+  logic [MAN_BITS-1:0] mant_b    = custom_mid1_pipe_operand_b_q[CUSTOM_MID1_PIPE_DEPTH].mantissa;
+  logic [MAN_BITS-1:0] mant_c    = custom_mid1_pipe_operand_c_q[CUSTOM_MID1_PIPE_DEPTH].mantissa;
+  logic               isnormal_a = custom_mid1_pipe_info_a_q[CUSTOM_MID1_PIPE_DEPTH].is_normal;
+  logic               isnormal_b = custom_mid1_pipe_info_b_q[CUSTOM_MID1_PIPE_DEPTH].is_normal;
+  logic               isnormal_c = custom_mid1_pipe_info_c_q[CUSTOM_MID1_PIPE_DEPTH].is_normal;
 
   // Add implicit bits to mantissae
-  assign mantissa_a = {info_a.is_normal, operand_a.mantissa};
-  assign mantissa_b = {info_b.is_normal, operand_b.mantissa};
-  assign mantissa_c = {info_c.is_normal, operand_c.mantissa};
+  assign mantissa_a = {isnormal_a, mant_a};
+  assign mantissa_b = {isnormal_b, mant_b};
+  assign mantissa_c = {isnormal_c, mant_c};
 
   // Mantissa multiplier (a*b)
   assign product = mantissa_a * mantissa_b;
 
+  ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+  // ---------------
+  // Custom mid2 pipeline
+  // ---------------
+  localparam int CUSTOM_MID2_PIPE_DEPTH = 1;
+  // Custom mid pipeline signals, index i holds signal after i register stage
+  logic                          [0:CUSTOM_MID2_PIPE_DEPTH] [2*PRECISION_BITS-1:0]   custom_mid2_pipe_product_q;
+  logic                          [0:CUSTOM_MID2_PIPE_DEPTH] [PRECISION_BITS-1:0]     custom_mid2_pipe_mantissa_c_q;
+  logic                          [0:CUSTOM_MID2_PIPE_DEPTH]                          custom_mid2_pipe_effective_subtraction_q;
+  logic                          [0:CUSTOM_MID2_PIPE_DEPTH]                          custom_mid2_pipe_tentative_sign_q;
+  fp_t                           [0:CUSTOM_MID2_PIPE_DEPTH]                          custom_mid2_pipe_special_result_q;
+  fpnew_pkg::status_t            [0:CUSTOM_MID2_PIPE_DEPTH]                          custom_mid2_pipe_special_status_q;
+  logic                          [0:CUSTOM_MID2_PIPE_DEPTH]                          custom_mid2_pipe_result_is_special_q;
+  logic signed                   [0:CUSTOM_MID2_PIPE_DEPTH] [EXP_WIDTH-1:0]          custom_mid2_pipe_exponent_product_q;
+  logic signed                   [0:CUSTOM_MID2_PIPE_DEPTH] [EXP_WIDTH-1:0]          custom_mid2_pipe_exponent_difference_q;
+  logic signed                   [0:CUSTOM_MID2_PIPE_DEPTH] [EXP_WIDTH-1:0]          custom_mid2_pipe_tentative_exponent_q;
+  logic                          [0:CUSTOM_MID2_PIPE_DEPTH] [SHIFT_AMOUNT_WIDTH-1:0] custom_mid2_pipe_addend_shamt_q;
+  fpnew_pkg::roundmode_e         [0:CUSTOM_MID2_PIPE_DEPTH]                          custom_mid2_pipe_rnd_mode_q;
+  TagType                        [0:CUSTOM_MID2_PIPE_DEPTH]                          custom_mid2_pipe_tag_q;
+  logic                          [0:CUSTOM_MID2_PIPE_DEPTH]                          custom_mid2_pipe_mask_q;
+  AuxType                        [0:CUSTOM_MID2_PIPE_DEPTH]                          custom_mid2_pipe_aux_q;
+  logic                          [0:CUSTOM_MID2_PIPE_DEPTH]                          custom_mid2_pipe_valid_q;
+  // Ready signal is combinatorial for all stages
+  logic                          [0:CUSTOM_MID2_PIPE_DEPTH]                          custom_mid2_pipe_ready;
+
+  // Input stage:
+  assign custom_mid2_pipe_product_q[0]               = product;
+  assign custom_mid2_pipe_mantissa_c_q[0]            = mantissa_c;
+  assign custom_mid2_pipe_effective_subtraction_q[0] = custom_mid1_pipe_effective_subtraction_q[CUSTOM_MID1_PIPE_DEPTH];
+  assign custom_mid2_pipe_tentative_sign_q[0]        = custom_mid1_pipe_tentative_sign_q[CUSTOM_MID1_PIPE_DEPTH];
+  assign custom_mid2_pipe_special_result_q[0]        = custom_mid1_pipe_special_result_q[CUSTOM_MID1_PIPE_DEPTH];
+  assign custom_mid2_pipe_special_status_q[0]        = custom_mid1_pipe_special_status_q[CUSTOM_MID1_PIPE_DEPTH];
+  assign custom_mid2_pipe_result_is_special_q[0]     = custom_mid1_pipe_result_is_special_q[CUSTOM_MID1_PIPE_DEPTH];
+  assign custom_mid2_pipe_exponent_product_q[0]      = custom_mid1_pipe_exponent_product_q[CUSTOM_MID1_PIPE_DEPTH];
+  assign custom_mid2_pipe_exponent_difference_q[0]   = custom_mid1_pipe_exponent_difference_q[CUSTOM_MID1_PIPE_DEPTH];
+  assign custom_mid2_pipe_tentative_exponent_q[0]    = custom_mid1_pipe_tentative_exponent_q[CUSTOM_MID1_PIPE_DEPTH];
+  assign custom_mid2_pipe_addend_shamt_q[0]          = custom_mid1_pipe_addend_shamt_q[CUSTOM_MID1_PIPE_DEPTH];
+  assign custom_mid2_pipe_rnd_mode_q[0]              = custom_mid1_pipe_rnd_mode_q[CUSTOM_MID1_PIPE_DEPTH];
+  assign custom_mid2_pipe_tag_q[0]                   = custom_mid1_pipe_tag_q[CUSTOM_MID1_PIPE_DEPTH];
+  assign custom_mid2_pipe_mask_q[0]                  = custom_mid1_pipe_mask_q[CUSTOM_MID1_PIPE_DEPTH];
+  assign custom_mid2_pipe_aux_q[0]                   = custom_mid1_pipe_aux_q[CUSTOM_MID1_PIPE_DEPTH];
+  assign custom_mid2_pipe_valid_q[0]                 = custom_mid1_pipe_valid_q[CUSTOM_MID1_PIPE_DEPTH];
+  // Input stage: Propagate pipeline ready signal to updtream circuitry
+  assign custom_mid1_pipe_ready[CUSTOM_MID1_PIPE_DEPTH] = custom_mid2_pipe_ready[0];
+  // Generate the register stages
+  for (genvar i = 0; i < CUSTOM_MID2_PIPE_DEPTH; i++) begin : gen_custom_mid2_pipeline
+    // Internal register enable for this stage
+    logic reg_ena;
+    // Determine the ready signal of the current stage - advance the pipeline:
+    // 1. if the next stage is ready for our data
+    // 2. if the next stage only holds a bubble (not valid) -> we can pop it
+    assign custom_mid2_pipe_ready[i] = custom_mid2_pipe_ready[i+1] | ~custom_mid2_pipe_valid_q[i+1];
+    // Valid: enabled by ready signal, synchronous clear with the flush signal
+    `FFLARNC(custom_mid2_pipe_valid_q[i+1], custom_mid2_pipe_valid_q[i], custom_mid2_pipe_ready[i], flush_i, 1'b0, clk_i, rst_ni)
+    // Enable register if pipleine ready and a valid data item is present
+    assign reg_ena = custom_mid2_pipe_ready[i] & custom_mid2_pipe_valid_q[i]; // Enabling on ready - only - should be enough (TODO: TEST)
+    // Generate the pipeline registers within the stages, use enable-registers
+    `FFL(custom_mid2_pipe_product_q[i+1],               custom_mid2_pipe_product_q[i],               reg_ena, '0);
+    `FFL(custom_mid2_pipe_mantissa_c_q[i+1],            custom_mid2_pipe_mantissa_c_q[i],            reg_ena, '0);
+    `FFL(custom_mid2_pipe_effective_subtraction_q[i+1], custom_mid2_pipe_effective_subtraction_q[i], reg_ena, '0);
+    `FFL(custom_mid2_pipe_tentative_sign_q[i+1],        custom_mid2_pipe_tentative_sign_q[i],        reg_ena, '0);
+    `FFL(custom_mid2_pipe_special_result_q[i+1],        custom_mid2_pipe_special_result_q[i],        reg_ena, '0);
+    `FFL(custom_mid2_pipe_special_status_q[i+1],        custom_mid2_pipe_special_status_q[i],        reg_ena, '0);
+    `FFL(custom_mid2_pipe_result_is_special_q[i+1],     custom_mid2_pipe_result_is_special_q[i],     reg_ena, '0);
+    `FFL(custom_mid2_pipe_exponent_product_q[i+1],      custom_mid2_pipe_exponent_product_q[i],      reg_ena, '0);
+    `FFL(custom_mid2_pipe_exponent_difference_q[i+1],   custom_mid2_pipe_exponent_difference_q[i],   reg_ena, '0);
+    `FFL(custom_mid2_pipe_tentative_exponent_q[i+1],    custom_mid2_pipe_tentative_exponent_q[i],    reg_ena, '0);
+    `FFL(custom_mid2_pipe_addend_shamt_q[i+1],          custom_mid2_pipe_addend_shamt_q[i],          reg_ena, '0);
+    `FFL(custom_mid2_pipe_rnd_mode_q[i+1],              custom_mid2_pipe_rnd_mode_q[i],              reg_ena, fpnew_pkg::RNE)
+    `FFL(custom_mid2_pipe_tag_q[i+1],                   custom_mid2_pipe_tag_q[i],                   reg_ena, TagType'('0))
+    `FFL(custom_mid2_pipe_mask_q[i+1],                  custom_mid2_pipe_mask_q[i],                  reg_ena, '0)
+    `FFL(custom_mid2_pipe_aux_q[i+1],                   custom_mid2_pipe_aux_q[i],                   reg_ena, AuxType'('0))
+  end
+  ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+  logic [2*PRECISION_BITS-1:0]   prod        = custom_mid2_pipe_product_q[CUSTOM_MID2_PIPE_DEPTH];
+  logic [PRECISION_BITS-1:0]     mantc       = custom_mid2_pipe_mantissa_c_q[CUSTOM_MID2_PIPE_DEPTH];
+  logic [SHIFT_AMOUNT_WIDTH-1:0] addendshamt = custom_mid2_pipe_addend_shamt_q[CUSTOM_MID2_PIPE_DEPTH];
+  logic                          effsub      = custom_mid2_pipe_effective_subtraction_q[CUSTOM_MID2_PIPE_DEPTH];
+
   // Product is placed into a 3p+4 bit wide vector, padded with 2 bits for round and sticky:
   // | 000...000 | product | RS |
   //  <-  p+2  -> <-  2p -> < 2>
-  assign product_shifted = product << 2; // constant shift
+  logic [3*PRECISION_BITS+3:0] product_shifted;     // addends are 3p+4 bit wide (including G/R)
+  assign product_shifted = prod << 2; // constant shift
 
   // -----------------
   // Addend data path
@@ -354,14 +529,14 @@ module fpnew_fma #(
   // | 000..........000 | mantissa_c | 000...............0GR |  sticky bits  |
   //  <- addend_shamt -> <-    p   -> <- 2p+4-addend_shamt -> <-  up to p  ->
   assign {addend_after_shift, addend_sticky_bits} =
-      (mantissa_c << (3 * PRECISION_BITS + 4)) >> addend_shamt;
+      (mantc << (3 * PRECISION_BITS + 4)) >> addendshamt;
 
   assign sticky_before_add     = (| addend_sticky_bits);
   // assign addend_after_shift[0] = sticky_before_add;
 
   // In case of a subtraction, the addend is inverted
-  assign addend_shifted  = (effective_subtraction) ? ~addend_after_shift : addend_after_shift;
-  assign inject_carry_in = effective_subtraction & ~sticky_before_add;
+  assign addend_shifted  = (effsub) ? ~addend_after_shift : addend_after_shift;
+  assign inject_carry_in = effsub & ~sticky_before_add;
 
   // ------
   // Adder
@@ -376,12 +551,12 @@ module fpnew_fma #(
   assign sum_carry = sum_raw[3*PRECISION_BITS+4];
 
   // Complement negative sum (can only happen in subtraction -> overflows for positive results)
-  assign sum        = (effective_subtraction && ~sum_carry) ? -sum_raw : sum_raw;
+  assign sum        = (effsub && ~sum_carry) ? -sum_raw : sum_raw;
 
   // In case of a mispredicted subtraction result, do a sign flip
-  assign final_sign = (effective_subtraction && (sum_carry == tentative_sign))
+  assign final_sign = (effsub && (sum_carry == tentative_sign))
                       ? 1'b1
-                      : (effective_subtraction ? 1'b0 : tentative_sign);
+                      : (effsub ? 1'b0 : tentative_sign);
 
   // ---------------
   // Internal pipeline
@@ -408,10 +583,10 @@ module fpnew_fma #(
   logic                  [0:NUM_MID_REGS]                         mid_pipe_sticky_q;
   logic                  [0:NUM_MID_REGS][3*PRECISION_BITS+3:0]   mid_pipe_sum_q;
   logic                  [0:NUM_MID_REGS]                         mid_pipe_final_sign_q;
-  fpnew_pkg::roundmode_e [0:NUM_MID_REGS]                         mid_pipe_rnd_mode_q;
   logic                  [0:NUM_MID_REGS]                         mid_pipe_res_is_spec_q;
   fp_t                   [0:NUM_MID_REGS]                         mid_pipe_spec_res_q;
   fpnew_pkg::status_t    [0:NUM_MID_REGS]                         mid_pipe_spec_stat_q;
+  fpnew_pkg::roundmode_e [0:NUM_MID_REGS]                         mid_pipe_rnd_mode_q;
   TagType                [0:NUM_MID_REGS]                         mid_pipe_tag_q;
   logic                  [0:NUM_MID_REGS]                         mid_pipe_mask_q;
   AuxType                [0:NUM_MID_REGS]                         mid_pipe_aux_q;
@@ -420,24 +595,25 @@ module fpnew_fma #(
   logic [0:NUM_MID_REGS] mid_pipe_ready;
 
   // Input stage: First element of pipeline is taken from upstream logic
-  assign mid_pipe_eff_sub_q[0]     = effective_subtraction;
-  assign mid_pipe_exp_prod_q[0]    = exponent_product;
-  assign mid_pipe_exp_diff_q[0]    = exponent_difference;
-  assign mid_pipe_tent_exp_q[0]    = tentative_exponent;
-  assign mid_pipe_add_shamt_q[0]   = addend_shamt;
+  assign mid_pipe_eff_sub_q[0]     = effsub;
+  assign mid_pipe_exp_prod_q[0]    = custom_mid2_pipe_exponent_product_q[CUSTOM_MID2_PIPE_DEPTH];
+  assign mid_pipe_exp_diff_q[0]    = custom_mid2_pipe_exponent_difference_q[CUSTOM_MID2_PIPE_DEPTH];
+  assign mid_pipe_tent_exp_q[0]    = custom_mid2_pipe_tentative_exponent_q[CUSTOM_MID2_PIPE_DEPTH];
+  assign mid_pipe_add_shamt_q[0]   = addendshamt;
   assign mid_pipe_sticky_q[0]      = sticky_before_add;
   assign mid_pipe_sum_q[0]         = sum;
   assign mid_pipe_final_sign_q[0]  = final_sign;
-  assign mid_pipe_rnd_mode_q[0]    = inp_pipe_rnd_mode_q[NUM_INP_REGS];
-  assign mid_pipe_res_is_spec_q[0] = result_is_special;
-  assign mid_pipe_spec_res_q[0]    = special_result;
-  assign mid_pipe_spec_stat_q[0]   = special_status;
-  assign mid_pipe_tag_q[0]         = inp_pipe_tag_q[NUM_INP_REGS];
-  assign mid_pipe_mask_q[0]        = inp_pipe_mask_q[NUM_INP_REGS];
-  assign mid_pipe_aux_q[0]         = inp_pipe_aux_q[NUM_INP_REGS];
-  assign mid_pipe_valid_q[0]       = inp_pipe_valid_q[NUM_INP_REGS];
+  assign mid_pipe_res_is_spec_q[0] = custom_mid2_pipe_result_is_special_q[CUSTOM_MID2_PIPE_DEPTH];
+  assign mid_pipe_spec_res_q[0]    = custom_mid2_pipe_special_result_q[CUSTOM_MID2_PIPE_DEPTH];
+  assign mid_pipe_spec_stat_q[0]   = custom_mid2_pipe_special_status_q[CUSTOM_MID2_PIPE_DEPTH];
+  assign mid_pipe_rnd_mode_q[0]    = custom_mid2_pipe_rnd_mode_q[CUSTOM_MID2_PIPE_DEPTH];
+  assign mid_pipe_tag_q[0]         = custom_mid2_pipe_tag_q[CUSTOM_MID2_PIPE_DEPTH];
+  assign mid_pipe_mask_q[0]        = custom_mid2_pipe_mask_q[CUSTOM_MID2_PIPE_DEPTH];
+  assign mid_pipe_aux_q[0]         = custom_mid2_pipe_aux_q[CUSTOM_MID2_PIPE_DEPTH];
+  assign mid_pipe_valid_q[0]       = custom_mid2_pipe_valid_q[CUSTOM_MID2_PIPE_DEPTH];
   // Input stage: Propagate pipeline ready signal to input pipe
-  assign inp_pipe_ready[NUM_INP_REGS] = mid_pipe_ready[0];
+  //assign inp_pipe_ready[NUM_INP_REGS] = mid_pipe_ready[0];
+  assign custom_mid2_pipe_ready[CUSTOM_MID2_PIPE_DEPTH] = mid_pipe_ready[0];
 
   // Generate the register stages
   for (genvar i = 0; i < NUM_MID_REGS; i++) begin : gen_inside_pipeline
@@ -460,10 +636,10 @@ module fpnew_fma #(
     `FFL(mid_pipe_sticky_q[i+1],      mid_pipe_sticky_q[i],      reg_ena, '0)
     `FFL(mid_pipe_sum_q[i+1],         mid_pipe_sum_q[i],         reg_ena, '0)
     `FFL(mid_pipe_final_sign_q[i+1],  mid_pipe_final_sign_q[i],  reg_ena, '0)
-    `FFL(mid_pipe_rnd_mode_q[i+1],    mid_pipe_rnd_mode_q[i],    reg_ena, fpnew_pkg::RNE)
     `FFL(mid_pipe_res_is_spec_q[i+1], mid_pipe_res_is_spec_q[i], reg_ena, '0)
     `FFL(mid_pipe_spec_res_q[i+1],    mid_pipe_spec_res_q[i],    reg_ena, '0)
     `FFL(mid_pipe_spec_stat_q[i+1],   mid_pipe_spec_stat_q[i],   reg_ena, '0)
+    `FFL(mid_pipe_rnd_mode_q[i+1],    mid_pipe_rnd_mode_q[i],    reg_ena, fpnew_pkg::RNE)
     `FFL(mid_pipe_tag_q[i+1],         mid_pipe_tag_q[i],         reg_ena, TagType'('0))
     `FFL(mid_pipe_mask_q[i+1],        mid_pipe_mask_q[i],        reg_ena, '0)
     `FFL(mid_pipe_aux_q[i+1],         mid_pipe_aux_q[i],         reg_ena, AuxType'('0))
@@ -692,5 +868,5 @@ module fpnew_fma #(
   assign mask_o          = out_pipe_mask_q[NUM_OUT_REGS];
   assign aux_o           = out_pipe_aux_q[NUM_OUT_REGS];
   assign out_valid_o     = out_pipe_valid_q[NUM_OUT_REGS];
-  assign busy_o          = (| {inp_pipe_valid_q, mid_pipe_valid_q, out_pipe_valid_q});
+  assign busy_o          = (| {inp_pipe_valid_q, custom_mid1_pipe_valid_q, custom_mid2_pipe_valid_q, mid_pipe_valid_q, out_pipe_valid_q});
 endmodule
