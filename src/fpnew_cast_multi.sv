@@ -83,24 +83,27 @@ module fpnew_cast_multi #(
   // Pipelines
   localparam int unsigned NUM_INP_REGS =
     (PipeConfig == fpnew_pkg::BEFORE)      ? NumPipeRegs :
-    (PipeConfig == fpnew_pkg::DISTRIBUTED) ? ((NumPipeRegs + 1) / 3) : // Second to get distributed regs
+    (PipeConfig == fpnew_pkg::DISTRIBUTED) ? ((NumPipeRegs + 1) / 6) : // Second to get distributed regs
     (PipeConfig == fpnew_pkg::INSIDE)      ? (NumPipeRegs > 3) :
                                             0;
 
   localparam int unsigned NUM_IM_REGS =
+    (PipeConfig == fpnew_pkg::DISTRIBUTED) ? ((NumPipeRegs + 2) / 6) :
     (PipeConfig == fpnew_pkg::INSIDE)      ? (NumPipeRegs > 1) :
                                             0;
 
   localparam int unsigned NUM_MID_REGS =
-    (PipeConfig == fpnew_pkg::DISTRIBUTED) ? ((NumPipeRegs + 2) / 3) : // First to get distributed regs
+    (PipeConfig == fpnew_pkg::DISTRIBUTED) ? ((NumPipeRegs + 3) / 6) : // First to get distributed regs
     (PipeConfig == fpnew_pkg::INSIDE)      ? ((NumPipeRegs > 4) ? (NumPipeRegs - 4) : ((NumPipeRegs == 1) || (NumPipeRegs == 3))) : // absorbs overflow beyond 4 stages
                                             0;
 
   localparam int unsigned NUM_MO_EARLY_REGS =
+    (PipeConfig == fpnew_pkg::DISTRIBUTED) ? ((NumPipeRegs + 4) / 6) :
     (PipeConfig == fpnew_pkg::INSIDE)      ? ((NumPipeRegs == 2) || (NumPipeRegs == 4)) :
                                             0;
 
   localparam int unsigned NUM_MO_LATE_REGS =
+    (PipeConfig == fpnew_pkg::DISTRIBUTED) ? ((NumPipeRegs + 5) / 6) :
     (PipeConfig == fpnew_pkg::INSIDE)      ? ((NumPipeRegs == 3) || (NumPipeRegs > 4)) :
                                             0;
 
